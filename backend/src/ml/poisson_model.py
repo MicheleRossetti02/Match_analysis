@@ -20,18 +20,22 @@ class DixonColesPoissonModel:
     
     Accounts for correlation between home and away goals,
     particularly for low-scoring matches (0-0, 1-0, 0-1, 1-1)
+    
+    Reference:
+        Dixon, M. J., & Coles, S. G. (1997). "Modelling Association Football 
+        Scores and Inefficiencies in the Football Betting Market"
     """
     
     HOME_ADVANTAGE = 0.25
     MAX_GOALS = 8
-    RHO = -0.13  # Correlation parameter (negative = defensive correlation)
     
     def __init__(self, rho: float = -0.13):
         """
         Initialize with correlation parameter
         
         Args:
-            rho: Correlation coefficient (default -0.13 for football)
+            rho: Correlation coefficient (negative = defensive correlation)
+                 Typical value for football: -0.13
         """
         self.league_avg_home_goals = 1.5
         self.league_avg_away_goals = 1.2
@@ -103,10 +107,6 @@ class DixonColesPoissonModel:
                 away_defense = (team_away_conceded.get(team_id, 0) / max(team_away_matches.get(team_id, 1), 1)) / self.league_avg_home_goals if self.league_avg_home_goals > 0 else 1
                 self.team_defense[team_id] = (home_defense + away_defense) / 2
             
-            print(f"✅ Calculated stats for {len(self.team_attack)} teams")
-            print(f"   League avg: {self.league_avg_home_goals:.2f} home, {self.league_avg_away_goals:.2f} away")
-            print(f"   Dixon-Coles ρ: {self.rho:.3f}")
-            
         finally:
             if should_close:
                 db.close()
@@ -116,8 +116,18 @@ class DixonColesPoissonModel:
         """
         Dixon-Coles τ adjustment for low scores
         
-        Formula: τ(i,j) = 1 - λ_home × λ_away × ρ  if i,j ∈ {0,1}
-                 τ(i,j) = 1                         otherwise
+        Formula: 
+            τ(i,j) = 1 - λ_home × λ_away × ρ   if i,j ∈ {0,1}
+            τ(i,j) = 1                          otherwise
+        
+        Args:
+            home_goals: Home team goals
+            away_goals: Away team goals
+            lambda_home: Expected home goals
+            lambda_away: Expected away goals
+            
+        Returns:
+            Adjustment factor τ (tau)
         """
         if home_goals > 1 or away_goals > 1:
             return 1.0
@@ -141,10 +151,8 @@ class DixonColesPoissonModel:
         
         return lambda_home, lambda_away
     
-    def predict_score_probabilities(self, home_team_id: int, away_team_id: int) -> Dict:
-        """
-        Calculate score probabilities with Dixon-Coles adjustment
-        """
+    def predict_score_probabilities(self, home_team_id: int, away_team_id: int) -> Tuple[Dict, float, float]:
+        """Calculate score probabilities with Dixon-Coles adjustment"""
         lambda_home, lambda_away = self.get_expected_goals(home_team_id, away_team_id)
         
         probabilities = {}
@@ -170,6 +178,14 @@ class DixonColesPoissonModel:
     def predict_match(self, home_team_id: int, away_team_id: int) -> Dict:
         """
         Full match prediction with all markets including DC and Combo
+        
+        Returns:
+            dict with probabilities for:
+                - 1X2 (home_win, draw, away_win)
+                - Double Chance (double_chance_probs)
+                - Over/Under (over_15, over_25, over_35)
+                - BTTS (btts)
+                - Combo (combo_predictions)
         """
         score_probs, exp_home, exp_away = self.predict_score_probabilities(home_team_id, away_team_id)
         
@@ -203,21 +219,21 @@ class DixonColesPoissonModel:
         top_scores = sorted(score_probs.items(), key=lambda x: x[1], reverse=True)[:5]
         
         return {
-            'expected_home_goals': exp_home,
-            'expected_away_goals': exp_away,
+            'expected_home_goals': round(exp_home, 2),
+            'expected_away_goals': round(exp_away, 2),
             'correlation_rho': self.rho,
-            'home_win': prob_home,
-            'draw': prob_draw,
-            'away_win': prob_away,
+            'home_win': round(prob_home, 4),
+            'draw': round(prob_draw, 4),
+            'away_win': round(prob_away, 4),
             'double_chance_probs': {
-                '1X': prob_1x,
-                '12': prob_12,
-                'X2': prob_x2
+                '1X': round(prob_1x, 4),
+                '12': round(prob_12, 4),
+                'X2': round(prob_x2, 4)
             },
-            'over_15': prob_over_15,
-            'over_25': prob_over_25,
-            'over_35': prob_over_35,
-            'btts': prob_btts,
+            'over_15': round(prob_over_15, 4),
+            'over_25': round(prob_over_25, 4),
+            'over_35': round(prob_over_35, 4),
+            'btts': round(prob_btts, 4),
             'combo_predictions': {
                 '1_over_25': round(combo_1_over_25, 4),
                 'x_under_25': round(combo_x_under_25, 4),
