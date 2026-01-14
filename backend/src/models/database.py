@@ -163,6 +163,34 @@ class Prediction(Base):
     exact_score_prediction = Column(String)  # e.g., "2-1"
     exact_score_confidence = Column(Float)
     
+    # ========== DOUBLE CHANCE PREDICTIONS (Sprint 2) ==========
+    # Probabilities for combined outcomes
+    prob_1x = Column(Float)  # Home or Draw: P(1) + P(X)
+    prob_12 = Column(Float)  # Home or Away: P(1) + P(2)
+    prob_x2 = Column(Float)  # Draw or Away: P(X) + P(2)
+    
+    # Best Double Chance prediction
+    dc_prediction = Column(String)  # "1X", "12", or "X2"
+    dc_confidence = Column(Float)
+    
+    # ========== COMBO PREDICTIONS (Sprint 2) ==========
+    # Result + Goals combinations (using Bivariate Poisson)
+    combo_1_over_25 = Column(Float)  # P(Home Win AND Over 2.5)
+    combo_2_over_25 = Column(Float)  # P(Away Win AND Over 2.5)
+    combo_x_under_25 = Column(Float)  # P(Draw AND Under 2.5)
+    
+    # Result + BTTS combinations
+    combo_1_btts = Column(Float)  # P(Home Win AND BTTS Yes)
+    combo_2_btts = Column(Float)  # P(Away Win AND BTTS Yes)
+    combo_x_btts = Column(Float)  # P(Draw AND BTTS Yes)
+    
+    # Best combo prediction
+    best_combo_prediction = Column(String)  # e.g., "1_over_25"
+    best_combo_confidence = Column(Float)
+    
+    # Combo predictions JSON (Dixon-Coles adjusted probabilities)
+    combo_predictions = Column(JSON)  # {"1_over25": 0.45, "GG_over25": 0.38, ...}
+    
     # Model Info
     model_version = Column(String, nullable=False)
     model_type = Column(String)  # random_forest, xgboost, neural_network
@@ -194,6 +222,24 @@ class Prediction(Base):
     # Over/Under 3.5 Goals
     over_35_actual = Column(Boolean)  # Actual Over 3.5 outcome
     over_35_correct = Column(Boolean)  # Whether Over 3.5 prediction was correct
+    
+    # ========== DOUBLE CHANCE ACCURACY TRACKING (Sprint 2) ==========
+    dc_actual = Column(String)  # Actual DC outcome: "1X", "12", or "X2"
+    dc_correct = Column(Boolean)  # Whether DC prediction was correct
+    
+    # ========== COMBO ACCURACY TRACKING (Sprint 2) ==========
+    combo_1_over_25_actual = Column(Boolean)
+    combo_1_over_25_correct = Column(Boolean)
+    combo_2_over_25_actual = Column(Boolean)
+    combo_2_over_25_correct = Column(Boolean)
+    combo_x_under_25_actual = Column(Boolean)
+    combo_x_under_25_correct = Column(Boolean)
+    combo_1_btts_actual = Column(Boolean)
+    combo_1_btts_correct = Column(Boolean)
+    combo_2_btts_actual = Column(Boolean)
+    combo_2_btts_correct = Column(Boolean)
+    combo_x_btts_actual = Column(Boolean)
+    combo_x_btts_correct = Column(Boolean)
     
     # Relationship
     match = relationship("Match", back_populates="predictions")

@@ -27,16 +27,18 @@ class FeatureEngineer:
         team_id: int, 
         before_date: datetime,
         last_n: int = 5,
-        home_away: str = 'all'
+        home_away: str = 'all',
+        use_recency_weights: bool = False
     ) -> Dict:
         """
-        Calculate team form based on recent matches
+        Calculate team form based on recent matches with optional recency bias
         
         Args:
             team_id: Team ID
             before_date: Calculate form before this date
             last_n: Number of recent matches to consider
             home_away: 'all', 'home', or 'away'
+            use_recency_weights: If True, apply exponential decay weights (λ=0.85)
             
         Returns:
             Dict with form metrics
@@ -64,13 +66,17 @@ class FeatureEngineer:
                 'wins': 0, 'draws': 0, 'losses': 0,
                 'goals_for': 0, 'goals_against': 0,
                 'points': 0, 'matches_played': 0,
-                'win_rate': 0.0, 'avg_goals_for': 0.0, 'avg_goals_against': 0.0
+                'win_rate': 0.0, 'avg_goals_for': 0.0, 'avg_goals_against': 0.0,
+                'weighted_points': 0.0
             }
         
         wins = draws = losses = 0
         goals_for = goals_against = 0
+        weighted_points_sum = 0.0
+        weight_total = 0.0
+        decay_factor = 0.85  # Recent matches weighted more heavily
         
-        for match in matches:
+        for i, match in enumerate(matches):
             is_home = match.home_team_id == team_id
             
             if is_home:
@@ -81,15 +87,27 @@ class FeatureEngineer:
             goals_for += gf
             goals_against += ga
             
+            # Calculate points for this match
+            match_points = 0
             if gf > ga:
                 wins += 1
+                match_points = 3
             elif gf == ga:
                 draws += 1
+                match_points = 1
             else:
                 losses += 1
+                match_points = 0
+            
+            # Apply recency weight if enabled
+            if use_recency_weights:
+                weight = decay_factor ** i  # Most recent = 1.0, then 0.85, 0.72...
+                weighted_points_sum += match_points * weight
+                weight_total += weight
         
         matches_played = len(matches)
         points = wins * 3 + draws
+        weighted_points = weighted_points_sum / weight_total if weight_total > 0 else 0.0
         
         return {
             'wins': wins,
@@ -101,7 +119,8 @@ class FeatureEngineer:
             'matches_played': matches_played,
             'win_rate': wins / matches_played if matches_played > 0 else 0,
             'avg_goals_for': goals_for / matches_played if matches_played > 0 else 0,
-            'avg_goals_against': goals_against / matches_played if matches_played > 0 else 0
+            'avg_goals_against': goals_against / matches_played if matches_played > 0 else 0,
+            'weighted_points': weighted_points if use_recency_weights else points / max(matches_played, 1)
         }
     
     def get_h2h_record(
@@ -310,12 +329,12 @@ class FeatureEngineer:
         features['month'] = match.match_date.month
         features['is_weekend'] = 1 if match.match_date.weekday() in [5, 6] else 0
         
-        # Home team features
+        # Home team features (with recency bias)
         home_form_all = self.calculate_team_form(
-            match.home_team_id, match.match_date, last_n=5, home_away='all'
+            match.home_team_id, match.match_date, last_n=5, home_away='all', use_recency_weights=True
         )
         home_form_home = self.calculate_team_form(
-            match.home_team_id, match.match_date,last_n=5, home_away='home'
+            match.home_team_id, match.match_date, last_n=5, home_away='home', use_recency_weights=True
         )
         home_goals = self.get_goal_statistics(
             match.home_team_id, match.match_date, last_n=10, home_away='all'
@@ -329,12 +348,12 @@ class FeatureEngineer:
             if key not in home_form_all:  # Avoid duplicates
                 features[f'home_{key}'] = value
         
-        # Away team features
+        # Away team features (with recency bias)
         away_form_all = self.calculate_team_form(
-            match.away_team_id, match.match_date, last_n=5, home_away='all'
+            match.away_team_id, match.match_date, last_n=5, home_away='all', use_recency_weights=True
         )
         away_form_away = self.calculate_team_form(
-            match.away_team_id, match.match_date, last_n=5, home_away='away'
+            match.away_team_id, match.match_date, last_n=5, home_away='away', use_recency_weights=True
         )
         away_goals = self.get_goal_statistics(
             match.away_team_id, match.match_date, last_n=10, home_away='all'
@@ -449,6 +468,27 @@ class FeatureEngineer:
         features['away_goals_last_3'] = self._calculate_recent_goals(match.away_team_id, match.match_date, 3)
         features['home_conceded_last_3'] = self._calculate_recent_conceded(match.home_team_id, match.match_date, 3)
         features['away_conceded_last_3'] = self._calculate_recent_conceded(match.away_team_id, match.match_date, 3)
+        
+        # ========== xG (EXPECTED GOALS) FROM POISSON MODEL ==========
+        try:
+            from src.ml.poisson_model import get_poisson_model
+            poisson = get_poisson_model()
+            exp_home_goals, exp_away_goals = poisson.get_expected_goals(match.home_team_id, match.away_team_id)
+            features['poisson_xg_home'] = exp_home_goals
+            features['poisson_xg_away'] = exp_away_goals
+            features['poisson_xg_diff'] = exp_home_goals - exp_away_goals
+            features['poisson_xg_total'] = exp_home_goals + exp_away_goals
+        except:
+            # Fallback if Poisson model fails
+            features['poisson_xg_home'] = 1.5
+            features['poisson_xg_away'] = 1.2
+            features['poisson_xg_diff'] = 0.3
+            features['poisson_xg_total'] = 2.7
+        
+        # ========== MOMENTUM INDICATORS (3-match trend) ==========
+        features['home_momentum'] = self._calculate_momentum(match.home_team_id, match.match_date, last_n=3)
+        features['away_momentum'] = self._calculate_momentum(match.away_team_id, match.match_date, last_n=3)
+        features['momentum_diff'] = features['home_momentum'] - features['away_momentum']
         
         # ========== END NEW FEATURES ==========
         
@@ -727,6 +767,45 @@ class FeatureEngineer:
             else:
                 total += match.home_goals or 0
         return total
+    
+    def _calculate_momentum(self, team_id: int, before_date: datetime, last_n: int = 3) -> float:
+        """
+        Calculate momentum as weighted average of goal difference in last N matches
+        Positive momentum = scoring more and conceding less
+        
+        Args:
+            team_id: Team ID
+            before_date: Date before which to calculate
+            last_n: Number of recent matches (default 3)
+            
+        Returns:
+            Momentum score (average weighted goal difference)
+        """
+        matches = self.db.query(Match).filter(
+            Match.match_date < before_date,
+            Match.status == 'FT',
+            (Match.home_team_id == team_id) | (Match.away_team_id == team_id)
+        ).order_by(Match.match_date.desc()).limit(last_n).all()
+        
+        if not matches:
+            return 0.0
+        
+        weighted_sum = 0.0
+        weight_total = 0.0
+        decay_factor = 0.85
+        
+        for i, match in enumerate(matches):
+            weight = decay_factor ** i
+            
+            is_home = match.home_team_id == team_id
+            gf = match.home_goals if is_home else match.away_goals
+            ga = match.away_goals if is_home else match.home_goals
+            
+            goal_diff = (gf or 0) - (ga or 0)
+            weighted_sum += goal_diff * weight
+            weight_total += weight
+        
+        return weighted_sum / weight_total if weight_total > 0 else 0.0
     
     def create_training_dataset(
         self,

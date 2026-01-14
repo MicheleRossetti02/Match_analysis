@@ -94,7 +94,7 @@ class ExtendedPredictionGenerator:
         return predictions
     
     def generate_predictions_for_match(self, match: Match, db) -> Prediction:
-        """Generate prediction for a single match"""
+        """Generate prediction for a single match with DC and Combo markets"""
         engineer = FeatureEngineer(db)
         
         # Get features
@@ -125,6 +125,39 @@ class ExtendedPredictionGenerator:
                 prob_h, prob_d, prob_a = 0.33, 0.33, 0.34
         else:
             prob_h, prob_d, prob_a = 0.33, 0.33, 0.34
+        
+        # ========== DOUBLE CHANCE PREDICTIONS (Sprint 2) ==========
+        try:
+            from src.ml.double_chance_predictor import get_double_chance_predictor
+            dc_predictor = get_double_chance_predictor()
+            dc_result = dc_predictor.predict_from_probabilities(prob_h, prob_d, prob_a)
+        except:
+            # Fallback if DC predictor fails
+            dc_result = {
+                'prob_1x': prob_h + prob_d,
+                'prob_12': prob_h + prob_a,
+                'prob_x2': prob_d + prob_a,
+                'prediction': '1X',
+                'confidence': prob_h + prob_d
+            }
+        
+        # ========== COMBO PREDICTIONS (Sprint 2) ==========
+        try:
+            from src.ml.bivariate_poisson_model import get_bivariate_poisson_model
+            biv_poisson = get_bivariate_poisson_model()
+            combo_probs = biv_poisson.predict_combo(match.home_team_id, match.away_team_id)
+        except:
+            # Fallback: use naive multiplication (not ideal but better than nothing)
+            prob_over_25 = over25_pred.get('confidence', 0.5) if over25_pred.get('prediction', False) else 0.5
+            prob_btts = btts_pred.get('confidence', 0.5) if btts_pred.get('prediction', False) else 0.5
+            combo_probs = {
+                '1_over_25': prob_h * prob_over_25 * 0.9,  # Slight correlation adjustment
+                '2_over_25': prob_a * prob_over_25 * 0.9,
+                'x_under_25': prob_d * (1 - prob_over_25) * 1.1,
+                '1_btts': prob_h * prob_btts,
+                '2_btts': prob_a * prob_btts,
+                'x_btts': prob_d * prob_btts * 0.7  # Draws less likely with BTTS
+            }
         
         # Generate exact score based on predicted result and goals
         predicted_result = str(result_pred.get('prediction', 'H'))
@@ -160,6 +193,21 @@ class ExtendedPredictionGenerator:
             # Exact score
             exact_score_prediction=exact_score,
             exact_score_confidence=0.08,  # Low confidence for exact scores
+            # ========== DOUBLE CHANCE (Sprint 2) ==========
+            prob_1x=dc_result['prob_1x'],
+            prob_12=dc_result['prob_12'],
+            prob_x2=dc_result['prob_x2'],
+            dc_prediction=dc_result['prediction'],
+            dc_confidence=dc_result['confidence'],
+            # ========== COMBO BETS (Sprint 2) ==========
+            combo_1_over_25=combo_probs['1_over_25'],
+            combo_2_over_25=combo_probs['2_over_25'],
+            combo_x_under_25=combo_probs['x_under_25'],
+            combo_1_btts=combo_probs['1_btts'],
+            combo_2_btts=combo_probs['2_btts'],
+            combo_x_btts=combo_probs['x_btts'],
+            best_combo_prediction=max(combo_probs, key=combo_probs.get),
+            best_combo_confidence=max(combo_probs.values()),
             # Model info
             model_version=self.config['version'],
             model_type=self.config['model_type'],

@@ -1,10 +1,14 @@
 import { useParams, Link } from 'react-router-dom'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { api } from '../services/api'
+import { api, getEnhancedMatchPrediction } from '../services/api'
 import { format } from 'date-fns'
+import DoubleChanceGrid from '../components/AdvancedMarkets/DoubleChanceGrid'
+import ComboCards from '../components/AdvancedMarkets/ComboCards'
 
 function MatchPrediction() {
     const { matchId } = useParams()
+    const [activeTab, setActiveTab] = useState('traditional') // traditional | advanced
 
     // Fetch match details
     const { data: match, isLoading: loadingMatch } = useQuery({
@@ -12,10 +16,10 @@ function MatchPrediction() {
         queryFn: () => api.getMatch(matchId),
     })
 
-    // Fetch prediction
+    // Fetch prediction with Dixon-Coles enhancement
     const { data: prediction, isLoading: loadingPrediction, error } = useQuery({
         queryKey: ['prediction', matchId],
-        queryFn: () => api.getMatchPrediction(matchId),
+        queryFn: () => getEnhancedMatchPrediction(matchId),
         enabled: !!matchId,
         retry: false,
     })
@@ -277,6 +281,72 @@ function MatchPrediction() {
                                 </div>
                             </div>
                         )}
+                    </div>
+
+                    {/* TAB NAVIGATION FOR MARKETS */}
+                    <div className="card bg-dark-800/50 border-dark-700">
+                        <div className="flex items-center gap-4 border-b border-dark-600 pb-4">
+                            <button
+                                onClick={() => setActiveTab('traditional')}
+                                className={`
+                                    px-6 py-3 rounded-lg font-semibold transition-all duration-200
+                                    ${activeTab === 'traditional'
+                                        ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/50'
+                                        : 'bg-dark-700 text-gray-400 hover:bg-dark-600 hover:text-white'}
+                                `}
+                            >
+                                📊 Traditional Markets
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('advanced')}
+                                className={`
+                                    px-6 py-3 rounded-lg font-semibold transition-all duration-200 flex items-center gap-2
+                                    ${activeTab === 'advanced'
+                                        ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg shadow-purple-500/50'
+                                        : 'bg-dark-700 text-gray-400 hover:bg-dark-600 hover:text-white'}
+                                `}
+                            >
+                                <span>🎰 Advanced Markets</span>
+                                {predictionData.has_dixon_coles && (
+                                    <span className="inline-flex items-center px-2 py-0.5 bg-white/20 rounded text-xs">
+                                        <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                        </svg>
+                                        Dixon-Coles
+                                    </span>
+                                )}
+                            </button>
+                        </div>
+
+                        {/* Tab Content */}
+                        <div className="mt-6">
+                            {activeTab === 'traditional' && (
+                                <div className="text-center py-8">
+                                    <p className="text-gray-400 text-lg mb-2">📈 Traditional Markets</p>
+                                    <p className="text-sm text-gray-500">
+                                        Traditional betting markets (1X2, BTTS, Over/Under) are displayed above.
+                                        <br />
+                                        Switch to Advanced Markets to see Double Chance and Combo bets.
+                                    </p>
+                                </div>
+                            )}
+
+                            {activeTab === 'advanced' && (
+                                <div className="space-y-8">
+                                    {/* Double Chance Grid */}
+                                    <DoubleChanceGrid
+                                        prediction={predictionData}
+                                        match={matchData}
+                                    />
+
+                                    {/* Combo Cards */}
+                                    <ComboCards
+                                        prediction={predictionData}
+                                        match={matchData}
+                                    />
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     {/* Key Factors */}

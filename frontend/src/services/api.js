@@ -83,4 +83,54 @@ export const api = {
     getPredictionsWithResults: (params = {}) => apiClient.get('/api/predictions/with-results', { params }),
 };
 
+/**
+ * Transform prediction data to ensure Dixon-Coles fields exist
+ * Handles backward compatibility with old prediction format
+ */
+export const transformPrediction = (pred) => {
+    if (!pred) return null;
+
+    return {
+        ...pred,
+        // Ensure Double Chance exists
+        double_chance: pred.double_chance || {
+            '1X': pred.prob_1x || (pred.prob_home_win + pred.prob_draw),
+            '12': pred.prob_12 || (pred.prob_home_win + pred.prob_away_win),
+            'X2': pred.prob_x2 || (pred.prob_draw + pred.prob_away_win)
+        },
+        // Ensure Combo predictions exist
+        combo_predictions: pred.combo_predictions || {},
+        // Flag for Dixon-Coles presence
+        has_dixon_coles: !!(pred.combo_predictions && Object.keys(pred.combo_predictions).length > 0),
+        // Correlation indicator
+        correlation_rho: pred.correlation_rho || null
+    };
+};
+
+/**
+ * Helper to get predictions with Dixon-Coles transformation
+ */
+export const getEnhancedPredictions = async (params = {}) => {
+    const response = await api.getUpcomingPredictions(params);
+
+    if (response.data && Array.isArray(response.data)) {
+        response.data = response.data.map(transformPrediction);
+    }
+
+    return response;
+};
+
+/**
+ * Helper to get single match prediction with transformation
+ */
+export const getEnhancedMatchPrediction = async (matchId) => {
+    const response = await api.getMatchPrediction(matchId);
+
+    if (response.data) {
+        response.data = transformPrediction(response.data);
+    }
+
+    return response;
+};
+
 export default apiClient;
