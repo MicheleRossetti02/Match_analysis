@@ -1,0 +1,85 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ML Models
+models/*.pkl
+models/*.h5
+models/*.joblib
+*.ckpt
+
+# Data
+data/raw/
+data/processed/
+data/cache/
+*.csv
+*.json
+!config/*.json
+!package.json
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+config/secrets.py
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Node (Frontend)
+node_modules/
+.npm
+.pnp
+.pnp.js
+dist/
+build/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Redis
+dump.rdb
+
+# Docker
+.docker/
