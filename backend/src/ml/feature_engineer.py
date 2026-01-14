@@ -21,6 +21,15 @@ class FeatureEngineer:
     
     def __init__(self, db: Session = None):
         self.db = db or SessionLocal()
+        # Memoization cache for expensive queries
+        self._cache = {
+            'team_form': {},      # (team_id, date, last_n, home_away) -> result
+            'league_pos': {},     # (team_id, league_id, date) -> position
+            'h2h': {},           # (home_id, away_id, date, last_n) -> result
+            'bulk_matches': None  # Preloaded matches for batch processing
+        }
+        self._cache_hits = 0
+        self._cache_misses = 0
     
     def calculate_team_form(
         self, 
@@ -32,6 +41,7 @@ class FeatureEngineer:
     ) -> Dict:
         """
         Calculate team form based on recent matches with optional recency bias
+        WITH MEMOIZATION CACHE
         
         Args:
             team_id: Team ID
@@ -43,85 +53,119 @@ class FeatureEngineer:
         Returns:
             Dict with form metrics
         """
-        # Build query
-        query = self.db.query(Match).filter(
-            Match.match_date < before_date,
-            Match.status == 'FT'
-        )
+        # Check cache first
+        cache_key = (team_id, before_date.isoformat(), last_n, home_away, use_recency_weights)
+        if cache_key in self._cache['team_form']:
+            self._cache_hits += 1
+            return self._cache['team_form'][cache_key]
         
-        # Filter by home/away
-        if home_away == 'home':
-            query = query.filter(Match.home_team_id == team_id)
-        elif home_away == 'away':
-            query = query.filter(Match.away_team_id == team_id)
+        self._cache_misses += 1
+        
+        # Use bulk matches if available
+        if self._cache['bulk_matches'] is not None:
+            # Filter from preloaded matches
+            recent_matches = [
+                m for m in self._cache['bulk_matches']
+                if m.match_date < before_date and m.status == 'FT' and (
+                    (home_away == 'all' and (m.home_team_id == team_id or m.away_team_id == team_id)) or
+                    (home_away == 'home' and m.home_team_id == team_id) or
+                    (home_away == 'away' and m.away_team_id == team_id)
+                )
+            ]
+            # Sort by date desc and take last_n
+            recent_matches = sorted(recent_matches, key=lambda x: x.match_date, reverse=True)[:last_n]
         else:
-            query = query.filter(
-                (Match.home_team_id == team_id) | (Match.away_team_id == team_id)
+            # Query for recent matches (original logic)
+            query = self.db.query(Match).filter(
+                Match.match_date < before_date,
+                Match.status == 'FT'
             )
+            
+            if home_away == 'home':
+                query = query.filter(Match.home_team_id == team_id)
+            elif home_away == 'away':
+                query = query.filter(Match.away_team_id == team_id)
+            else:
+                query = query.filter(
+                    (Match.home_team_id == team_id) | (Match.away_team_id == team_id)
+                )
+            
+            recent_matches = query.order_by(Match.match_date.desc()).limit(last_n).all()
         
-        matches = query.order_by(Match.match_date.desc()).limit(last_n).all()
-        
-        if not matches:
-            return {
+        if not recent_matches:
+            result = {
                 'wins': 0, 'draws': 0, 'losses': 0,
                 'goals_for': 0, 'goals_against': 0,
                 'points': 0, 'matches_played': 0,
-                'win_rate': 0.0, 'avg_goals_for': 0.0, 'avg_goals_against': 0.0,
+                'win_rate': 0.0,
+                'avg_goals_for': 0.0,
+                'avg_goals_against': 0.0,
                 'weighted_points': 0.0
             }
+            self._cache['team_form'][cache_key] = result
+            return result
         
-        wins = draws = losses = 0
-        goals_for = goals_against = 0
+        # Calculate stats
+        wins_weighted = draws_weighted = losses_weighted = 0.0
+        goals_for_weighted = goals_against_weighted = 0.0
         weighted_points_sum = 0.0
-        weight_total = 0.0
-        decay_factor = 0.85  # Recent matches weighted more heavily
+        total_weight = 0.0
+        decay_factor = 0.85
         
-        for i, match in enumerate(matches):
+        for i, match in enumerate(recent_matches):
             is_home = match.home_team_id == team_id
+            team_goals = match.home_goals or 0 if is_home else match.away_goals or 0
+            opponent_goals = match.away_goals or 0 if is_home else match.home_goals or 0
             
-            if is_home:
-                gf, ga = match.home_goals or 0, match.away_goals or 0
-            else:
-                gf, ga = match.away_goals or 0, match.home_goals or 0
+            weight = decay_factor ** i if use_recency_weights else 1.0
+            total_weight += weight
             
-            goals_for += gf
-            goals_against += ga
-            
-            # Calculate points for this match
             match_points = 0
-            if gf > ga:
-                wins += 1
+            if team_goals > opponent_goals:
+                wins_weighted += weight
                 match_points = 3
-            elif gf == ga:
-                draws += 1
+            elif team_goals == opponent_goals:
+                draws_weighted += weight
                 match_points = 1
             else:
-                losses += 1
+                losses_weighted += weight
                 match_points = 0
             
-            # Apply recency weight if enabled
-            if use_recency_weights:
-                weight = decay_factor ** i  # Most recent = 1.0, then 0.85, 0.72...
-                weighted_points_sum += match_points * weight
-                weight_total += weight
+            goals_for_weighted += team_goals * weight
+            goals_against_weighted += opponent_goals * weight
+            weighted_points_sum += match_points * weight
         
-        matches_played = len(matches)
-        points = wins * 3 + draws
-        weighted_points = weighted_points_sum / weight_total if weight_total > 0 else 0.0
+        matches_played = len(recent_matches)
         
-        return {
+        if total_weight > 0:
+            wins = wins_weighted / total_weight
+            draws = draws_weighted / total_weight
+            losses = losses_weighted / total_weight
+            goals_for = goals_for_weighted / total_weight
+            goals_against = goals_against_weighted / total_weight
+            weighted_points = weighted_points_sum / total_weight
+        else: # Should not happen if matches_played > 0, but for safety
+            wins = draws = losses = goals_for = goals_against = weighted_points = 0.0
+        
+        points = (wins_weighted * 3 + draws_weighted) / max(total_weight, 1) if use_recency_weights else (wins_weighted * 3 + draws_weighted) / matches_played if matches_played > 0 else 0
+        
+        result = {
             'wins': wins,
             'draws': draws,
             'losses': losses,
             'goals_for': goals_for,
             'goals_against': goals_against,
-            'points': points,
+            'points': points, # This 'points' is the average points per game, potentially weighted
             'matches_played': matches_played,
-            'win_rate': wins / matches_played if matches_played > 0 else 0,
-            'avg_goals_for': goals_for / matches_played if matches_played > 0 else 0,
-            'avg_goals_against': goals_against / matches_played if matches_played > 0 else 0,
-            'weighted_points': weighted_points if use_recency_weights else points / max(matches_played, 1)
+            'win_rate': wins, # Already weighted if use_recency_weights is True
+            'avg_goals_for': goals_for,
+            'avg_goals_against': goals_against,
+            'weighted_points': weighted_points
         }
+        
+        # Store in cache
+        self._cache['team_form'][cache_key] = result
+        return result
     
     def get_h2h_record(
         self,
@@ -132,21 +176,40 @@ class FeatureEngineer:
     ) -> Dict:
         """
         Get head-to-head record between two teams
+        WITH MEMOIZATION CACHE
         
         Returns:
             Dict with H2H statistics
         """
-        matches = self.db.query(Match).filter(
-            Match.match_date < before_date,
-            Match.status == 'FT',
-            (
+        # Check cache first
+        cache_key = (home_team_id, away_team_id, before_date.isoformat(), last_n)
+        if cache_key in self._cache['h2h']:
+            self._cache_hits += 1
+            return self._cache['h2h'][cache_key]
+        
+        self._cache_misses += 1
+        
+        # Use bulk matches if available
+        if self._cache['bulk_matches'] is not None:
+            h2h_matches = [
+                m for m in self._cache['bulk_matches']
+                if m.match_date < before_date and m.status == 'FT' and (
+                    (m.home_team_id == home_team_id and m.away_team_id == away_team_id) or
+                    (m.home_team_id == away_team_id and m.away_team_id == home_team_id)
+                )
+            ]
+            h2h_matches = sorted(h2h_matches, key=lambda x: x.match_date, reverse=True)[:last_n]
+        else:
+            # Original query logic
+            h2h_matches = self.db.query(Match).filter(
+                Match.match_date < before_date,
+                Match.status == 'FT',
                 ((Match.home_team_id == home_team_id) & (Match.away_team_id == away_team_id)) |
                 ((Match.home_team_id == away_team_id) & (Match.away_team_id == home_team_id))
-            )
-        ).order_by(Match.match_date.desc()).limit(last_n).all()
+            ).order_by(Match.match_date.desc()).limit(last_n).all()
         
-        if not matches:
-            return {
+        if not h2h_matches:
+            result = {
                 'h2h_matches': 0,
                 'home_wins': 0,
                 'draws': 0,
@@ -154,39 +217,44 @@ class FeatureEngineer:
                 'avg_goals_home': 0.0,
                 'avg_goals_away': 0.0
             }
+            self._cache['h2h'][cache_key] = result
+            return result
         
         home_wins = draws = away_wins = 0
-        total_goals_home = total_goals_away = 0
+        total_goals_ht = total_goals_at = 0
         
-        for match in matches:
-            # Determine which team was home in this match
-            match_home_is_query_home = match.home_team_id == home_team_id
-            
-            if match_home_is_query_home:
-                hg, ag = match.home_goals or 0, match.away_goals or 0
-            else:
-                hg, ag = match.away_goals or 0, match.home_goals or 0
-            
-            total_goals_home += hg
-            total_goals_away += ag
-            
-            if hg > ag:
-                home_wins += 1
-            elif hg == ag:
-                draws += 1
-            else:
-                away_wins += 1
+        for match in h2h_matches:
+            if match.home_team_id == home_team_id:
+                if (match.home_goals or 0) > (match.away_goals or 0):
+                    home_wins += 1
+                elif (match.home_goals or 0) == (match.away_goals or 0):
+                    draws += 1
+                else:
+                    away_wins += 1
+                total_goals_ht += (match.home_goals or 0)
+                total_goals_at += (match.away_goals or 0)
+            else: # The query home team is the away team in this match
+                if (match.away_goals or 0) > (match.home_goals or 0):
+                    away_wins += 1
+                elif (match.away_goals or 0) == (match.home_goals or 0):
+                    draws += 1
+                else:
+                    home_wins += 1
+                total_goals_ht += (match.away_goals or 0) # Goals scored by the query home team
+                total_goals_at += (match.home_goals or 0) # Goals scored by the query away team
         
-        matches_played = len(matches)
-        
-        return {
-            'h2h_matches': matches_played,
+        matches_count = len(h2h_matches)
+        result = {
+            'h2h_matches': matches_count,
             'home_wins': home_wins,
             'draws': draws,
             'away_wins': away_wins,
-            'avg_goals_home': total_goals_home / matches_played if matches_played > 0 else 0,
-            'avg_goals_away': total_goals_away / matches_played if matches_played > 0 else 0
+            'avg_goals_home': total_goals_ht / matches_count if matches_count > 0 else 0.0,
+            'avg_goals_away': total_goals_at / matches_count if matches_count > 0 else 0.0
         }
+        
+        self._cache['h2h'][cache_key] = result
+        return result
     
     def calculate_league_position(
         self,
@@ -196,61 +264,74 @@ class FeatureEngineer:
     ) -> int:
         """
         Calculate team's league position at a given date
+        WITH BULK LOADING AND CACHING
         
         Returns:
             League position (1-based)
         """
-        # Get all matches in league before date
-        matches = self.db.query(Match).filter(
-            Match.league_id == league_id,
-            Match.match_date < before_date,
-            Match.status == 'FT'
-        ).all()
+        # Check cache first
+        cache_key = (team_id, league_id, before_date.isoformat())
+        if cache_key in self._cache['league_pos']:
+            self._cache_hits += 1
+            return self._cache['league_pos'][cache_key]
+        
+        self._cache_misses += 1
+        
+        # Use bulk matches if available
+        if self._cache['bulk_matches'] is not None:
+            league_matches = [
+                m for m in self._cache['bulk_matches']
+                if m.league_id == league_id and m.match_date < before_date and m.status == 'FT'
+            ]
+        else:
+            # Original query
+            league_matches = self.db.query(Match).filter(
+                Match.league_id == league_id,
+                Match.match_date < before_date,
+                Match.status == 'FT'
+            ).all()
+        
+        if not league_matches:
+            self._cache['league_pos'][cache_key] = 10 # Default to middle position if no matches
+            return 10
         
         # Calculate standings
         standings = {}
-        
-        for match in matches:
-            home_id = match.home_team_id
-            away_id = match.away_team_id
-            hg = match.home_goals or 0
-            ag = match.away_goals or 0
+        for match in league_matches:
+            for tid in [match.home_team_id, match.away_team_id]:
+                if tid not in standings:
+                    standings[tid] = {'points': 0, 'gd': 0}
             
-            # Initialize teams
-            if home_id not in standings:
-                standings[home_id] = {'points': 0, 'gd': 0, 'gf': 0}
-            if away_id not in standings:
-                standings[away_id] = {'points': 0, 'gd': 0, 'gf': 0}
+            home_goals = match.home_goals or 0
+            away_goals = match.away_goals or 0
             
-            # Update stats
-            standings[home_id]['gf'] += hg
-            standings[home_id]['gd'] += (hg - ag)
-            standings[away_id]['gf'] += ag
-            standings[away_id]['gd'] += (ag - hg)
-            
-            if hg > ag:
-                standings[home_id]['points'] += 3
-            elif hg == ag:
-                standings[home_id]['points'] += 1
-                standings[away_id]['points'] += 1
+            if home_goals > away_goals:
+                standings[match.home_team_id]['points'] += 3
+            elif away_goals > home_goals:
+                standings[match.away_team_id]['points'] += 3
             else:
-                standings[away_id]['points'] += 3
+                standings[match.home_team_id]['points'] += 1
+                standings[match.away_team_id]['points'] += 1
+            
+            standings[match.home_team_id]['gd'] += (home_goals - away_goals)
+            standings[match.away_team_id]['gd'] += (away_goals - home_goals)
         
-        if team_id not in standings:
-            return 20  # Default to last position
-        
-        # Sort by points, then gd, then gf
+        # Sort by points, then GD
         sorted_teams = sorted(
             standings.items(),
-            key=lambda x: (x[1]['points'], x[1]['gd'], x[1]['gf']),
+            key=lambda x: (x[1]['points'], x[1]['gd']),
             reverse=True
         )
         
-        for position, (tid, _) in enumerate(sorted_teams, 1):
+        # Find position
+        position = len(sorted_teams) // 2 # Default to middle if team not found
+        for pos, (tid, _) in enumerate(sorted_teams, 1):
             if tid == team_id:
-                return position
+                position = pos
+                break
         
-        return 20
+        self._cache['league_pos'][cache_key] = position
+        return position
     
     def get_goal_statistics(
         self,
@@ -814,17 +895,21 @@ class FeatureEngineer:
         league_ids: Optional[List[int]] = None
     ) -> pd.DataFrame:
         """
-        Create complete training dataset from all finished matches
-        
-        Args:
-            min_date: Minimum match date
-            max_date: Maximum match date
-            league_ids: List of league IDs to include
-            
-        Returns:
-            DataFrame with features and target
+        Create comprehensive training dataset from historical matches
+        WITH BULK LOADING AND PROGRESS TRACKING
         """
-        query = self.db.query(Match).filter(Match.status == 'FT')
+        import time
+        
+        print("\n📊 Creating Training Dataset with Optimizations...")
+        start_time = time.time()
+        
+        # BULK LOADING: Load all finished matches into memory once
+        print("🔄 Bulk loading all finished matches...")
+        query = self.db.query(Match).filter(
+            Match.status == 'FT',
+            Match.home_goals.isnot(None),
+            Match.away_goals.isnot(None)
+        )
         
         if min_date:
             query = query.filter(Match.match_date >= min_date)
@@ -833,26 +918,60 @@ class FeatureEngineer:
         if league_ids:
             query = query.filter(Match.league_id.in_(league_ids))
         
-        matches = query.order_by(Match.match_date).all()
+        all_matches = query.order_by(Match.match_date).all()
+        total_matches = len(all_matches)
+        print(f"✅ Loaded {total_matches} matches into memory")
         
-        print(f"Creating features for {len(matches)} matches...")
+        # Store in cache for bulk processing
+        self._cache['bulk_matches'] = all_matches
         
-        features_list = []
-        for i, match in enumerate(matches):
-            if i % 50 == 0:
-                print(f"  Processed {i}/{len(matches)} matches...")
-            
+        # Process matches with progress tracking
+        data = []
+        processed = 0
+        
+        print("\n⚙️  Processing features...")
+        for i, match in enumerate(all_matches, 1):
             try:
                 features = self.create_match_features(match)
                 features['match_id'] = match.id
-                features_list.append(features)
+                
+                # Add result
+                if match.home_goals > match.away_goals:
+                    features['result'] = 'H'
+                elif match.home_goals < match.away_goals:
+                    features['result'] = 'A'
+                else:
+                    features['result'] = 'D'
+                
+                data.append(features)
+                processed += 1
+                
+                # Progress logging every 50 matches
+                if i % 50 == 0 or i == total_matches:
+                    elapsed = time.time() - start_time
+                    avg_time_per_match = elapsed / i
+                    remaining = (total_matches - i) * avg_time_per_match
+                    eta_min = remaining / 60
+                    
+                    print(f"   [{i}/{total_matches}] {(i/total_matches)*100:.1f}% | "
+                          f"Avg: {avg_time_per_match:.3f}s/match | "
+                          f"ETA: {eta_min:.1f}min | "
+                          f"Cache hits: {self._cache_hits}, misses: {self._cache_misses}")
+            
             except Exception as e:
-                print(f"  Error processing match {match.id}: {e}")
+                print(f"   ⚠️  Error on match {match.id}: {e}")
         
-        print(f"✅ Created features for {len(features_list)} matches")
+        total_time = time.time() - start_time
+        cache_hit_rate = (self._cache_hits / (self._cache_hits + self._cache_misses)) * 100 if (self._cache_hits + self._cache_misses) > 0 else 0
         
-        df = pd.DataFrame(features_list)
-        return df
+        print(f"\n✅ Dataset created: {processed} matches, {len(data[0]) if data else 0} features")
+        print(f"⏱️  Total time: {total_time:.1f}s ({total_time/60:.1f}min)")
+        print(f"📈 Cache hit rate: {cache_hit_rate:.1f}% ({self._cache_hits} hits / {self._cache_misses} misses)")
+        
+        # Clear bulk cache
+        self._cache['bulk_matches'] = None
+        
+        return pd.DataFrame(data)
     
     def close(self):
         """Close database connection"""

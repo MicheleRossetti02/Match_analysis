@@ -73,6 +73,84 @@ function Bolletta() {
                 betsForMatch.push({ ...matchInfo, betType: prediction.multi_goal_prediction, betLabel: `${prediction.multi_goal_prediction} Goals`, probability: prediction.multi_goal_confidence, color: 'amber', category: 'Goals' });
             }
 
+            // ========== DOUBLE CHANCE (Dixon-Coles) ==========
+            // Safe bets with higher win probability (≥70%)
+            if (prediction.prob_1x && prediction.prob_1x >= 0.70) {
+                betsForMatch.push({
+                    ...matchInfo,
+                    betType: '1X',
+                    betLabel: 'DC 1X',
+                    probability: prediction.prob_1x,
+                    color: 'emerald',
+                    category: 'Double Chance',
+                    isSafe: true
+                });
+            }
+
+            if (prediction.prob_12 && prediction.prob_12 >= 0.70) {
+                betsForMatch.push({
+                    ...matchInfo,
+                    betType: '12',
+                    betLabel: 'DC 12',
+                    probability: prediction.prob_12,
+                    color: 'violet',
+                    category: 'Double Chance',
+                    isSafe: true
+                });
+            }
+
+            if (prediction.prob_x2 && prediction.prob_x2 >= 0.70) {
+                betsForMatch.push({
+                    ...matchInfo,
+                    betType: 'X2',
+                    betLabel: 'DC X2',
+                    probability: prediction.prob_x2,
+                    color: 'blue',
+                    category: 'Double Chance',
+                    isSafe: true
+                });
+            }
+
+            // ========== COMBO PREDICTIONS (Dixon-Coles) ==========
+            // High value bets (≥40% threshold)
+            const combos = prediction.combo_predictions || {};
+
+            if (combos['1_over_25'] && combos['1_over_25'] >= 0.40) {
+                betsForMatch.push({
+                    ...matchInfo,
+                    betType: '1_O2.5',
+                    betLabel: '1+Over2.5',
+                    probability: combos['1_over_25'],
+                    color: 'gold',
+                    category: 'Combo',
+                    isValue: true
+                });
+            }
+
+            if (combos['x_under_25'] && combos['x_under_25'] >= 0.40) {
+                betsForMatch.push({
+                    ...matchInfo,
+                    betType: 'X_U2.5',
+                    betLabel: 'X+Under2.5',
+                    probability: combos['x_under_25'],
+                    color: 'silver',
+                    category: 'Combo',
+                    isValue: true
+                });
+            }
+
+            if (combos['gg_over_25'] && combos['gg_over_25'] >= 0.40) {
+                betsForMatch.push({
+                    ...matchInfo,
+                    betType: 'GG_O2.5',
+                    betLabel: 'GG+Over2.5',
+                    probability: combos['gg_over_25'],
+                    color: 'gold',
+                    category: 'Combo',
+                    isValue: true
+                });
+            }
+
             // Find the best bet for this match (highest probability)
             if (betsForMatch.length > 0) {
                 const bestBet = betsForMatch.reduce((best, current) =>
@@ -137,7 +215,7 @@ function Bolletta() {
                     Bolletta della Settimana
                 </h1>
                 <p className="text-gray-400 text-lg">
-                    AI-powered accumulator with the best bets across all markets
+                    AI-powered accumulator with Dixon-Coles advanced markets
                 </p>
             </div>
 
@@ -201,6 +279,8 @@ function Bolletta() {
                                 <div className="flex items-center gap-4 flex-shrink-0">
                                     <span className={`text-sm font-bold px-3 py-1.5 rounded-lg border ${colorMap[bet.color]}`}>
                                         {bet.betLabel}
+                                        {bet.isSafe && <span className="ml-1.5">🛡️</span>}
+                                        {bet.isValue && <span className="ml-1.5">💎</span>}
                                     </span>
                                     <span className="text-emerald-400 font-bold text-lg">
                                         {(bet.probability * 100).toFixed(0)}%
