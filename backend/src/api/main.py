@@ -114,6 +114,15 @@ class PredictionResponse(BaseModel):
     exact_score_prediction: Optional[str] = None  # e.g., "2-1"
     exact_score_confidence: Optional[float] = None
     
+    # Double Chance probabilities
+    prob_1x: Optional[float] = None
+    prob_12: Optional[float] = None
+    prob_x2: Optional[float] = None
+    double_chance_probs: Optional[dict] = None  # {"1X": 0.75, "12": 0.80, "X2": 0.55}
+    
+    # Combo predictions (JSON)
+    combo_predictions: Optional[dict] = None  # {"1_over_25": 0.45, "x_under_25": 0.32, "gg_over_25": 0.38}
+    
     class Config:
         from_attributes = True
 
@@ -155,6 +164,15 @@ class PredictionWithMatchResponse(BaseModel):
     # Exact score
     exact_score_prediction: Optional[str] = None
     exact_score_confidence: Optional[float] = None
+    
+    # Double Chance probabilities
+    prob_1x: Optional[float] = None
+    prob_12: Optional[float] = None
+    prob_x2: Optional[float] = None
+    double_chance_probs: Optional[dict] = None  # {"1X": 0.75, "12": 0.80, "X2": 0.55}
+    
+    # Combo predictions (JSON)
+    combo_predictions: Optional[dict] = None  # {"1_over_25": 0.45, "x_under_25": 0.32, "gg_over_25": 0.38}
     
     class Config:
         from_attributes = True

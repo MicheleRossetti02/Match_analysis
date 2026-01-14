@@ -104,7 +104,11 @@ function Bolletta() {
         teal: 'bg-teal-500/20 text-teal-400 border-teal-500/30',
         orange: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
         cyan: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
-        amber: 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+        amber: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+        emerald: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',  // DC
+        violet: 'bg-violet-500/20 text-violet-400 border-violet-500/30',      // DC
+        gold: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',       // Combo
+        silver: 'bg-slate-500/20 text-slate-400 border-slate-500/30'         // Combo
     };
 
     if (isLoading) {
