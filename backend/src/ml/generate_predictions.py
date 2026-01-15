@@ -232,7 +232,7 @@ def generate_all_predictions(days_ahead=14):
     upcoming = db.query(Match).filter(
         Match.match_date >= today,
         Match.match_date <= future,
-        Match.status == 'NS'
+        Match.status.in_(['NS', 'TIMED', 'SCHEDULED'])  # Include all upcoming statuses
     ).all()
     
     print(f"Found {len(upcoming)} upcoming matches")

@@ -305,6 +305,35 @@ async def get_league_matches(
     return matches
 
 
+@app.get("/api/matches/upcoming", response_model=List[MatchResponse])
+async def get_upcoming_matches(
+    days: int = 7,
+    limit: int = 50,
+    db: Session = Depends(get_db)
+):
+    """Get upcoming matches (TIMED/SCHEDULED status)"""
+    from sqlalchemy.orm import joinedload
+    
+    today = datetime.utcnow()
+    future_date = today + timedelta(days=days)
+    
+    matches = (
+        db.query(Match)
+        .options(
+            joinedload(Match.home_team),
+            joinedload(Match.away_team)
+        )
+        .filter(Match.match_date >= today)
+        .filter(Match.match_date <= future_date)
+        .filter(Match.status.in_(['NS', 'TIMED', 'SCHEDULED']))
+        .order_by(Match.match_date)
+        .limit(limit)
+        .all()
+    )
+    
+    return matches
+
+
 @app.get("/api/matches/{match_id}", response_model=MatchResponse)
 async def get_match(match_id: int, db: Session = Depends(get_db)):
     """Get details for a specific match"""
@@ -334,6 +363,29 @@ async def get_match_prediction(match_id: int, db: Session = Depends(get_db)):
         )
     
     return prediction
+
+
+@app.get("/api/predictions", response_model=List[PredictionWithMatchResponse])
+async def get_all_predictions(
+    limit: int = 100,
+    db: Session = Depends(get_db)
+):
+    """Get all predictions with match details"""
+    from sqlalchemy.orm import joinedload
+    
+    predictions = (
+        db.query(Prediction)
+        .join(Match)
+        .options(
+            joinedload(Prediction.match).joinedload(Match.home_team),
+            joinedload(Prediction.match).joinedload(Match.away_team)
+        )
+        .order_by(Match.match_date.desc())
+        .limit(limit)
+        .all()
+    )
+    
+    return predictions
 
 
 @app.get("/api/predictions/upcoming", response_model=List[PredictionWithMatchResponse])
@@ -367,7 +419,7 @@ async def get_upcoming_predictions(
         )
         .filter(Match.match_date >= today)
         .filter(Match.match_date <= future_date)
-        .filter(Match.status == "NS")  # Not Started
+        .filter(Match.status.in_(['NS', 'TIMED', 'SCHEDULED']))  # Include all upcoming statuses
     )
     
     if league_id:

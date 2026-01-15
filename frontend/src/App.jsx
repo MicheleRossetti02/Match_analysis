@@ -1,5 +1,6 @@
 import { Routes, Route } from 'react-router-dom'
 import Navbar from './components/Navbar'
+import FloatingBetSlip from './components/FloatingBetSlip'
 import Dashboard from './pages/Dashboard'
 import Leagues from './pages/Leagues'
 import MatchPrediction from './pages/MatchPrediction'
@@ -13,6 +14,7 @@ function App() {
     return (
         <div className="min-h-screen bg-dark-900">
             <Navbar />
+            <FloatingBetSlip />
             <main className="container mx-auto px-4 py-8">
                 <Routes>
                     <Route path="/" element={<Dashboard />} />
@@ -25,11 +27,9 @@ function App() {
                     <Route path="/accuracy" element={<Accuracy />} />
                     <Route path="/bet-tracker" element={<BetTracker />} />
                 </Routes>
-            </Routes>
-        </main>
-        </div >
-    )
+            </main>
+        </div>
+    );
 }
 
 export default App
-
