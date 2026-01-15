@@ -7,6 +7,7 @@ import Statistics from './pages/Statistics'
 import TopBets from './pages/TopBets'
 import Bolletta from './pages/Bolletta'
 import Accuracy from './pages/Accuracy'
+import BetTracker from './pages/BetTracker'
 
 function App() {
     return (
@@ -17,13 +18,16 @@ function App() {
                     <Route path="/" element={<Dashboard />} />
                     <Route path="/leagues/:leagueId" element={<Leagues />} />
                     <Route path="/match/:matchId" element={<MatchPrediction />} />
+                    <Route path="/prediction/:matchId" element={<MatchPrediction />} />
                     <Route path="/statistics" element={<Statistics />} />
                     <Route path="/top-bets" element={<TopBets />} />
                     <Route path="/bolletta" element={<Bolletta />} />
                     <Route path="/accuracy" element={<Accuracy />} />
+                    <Route path="/bet-tracker" element={<BetTracker />} />
                 </Routes>
-            </main>
-        </div>
+            </Routes>
+        </main>
+        </div >
     )
 }
 

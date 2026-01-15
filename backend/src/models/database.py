@@ -261,6 +261,56 @@ class Prediction(Base):
     
     # Relationship
     match = relationship("Match", back_populates="predictions")
+    bet_history = relationship("BetHistory", back_populates="prediction")
+
+
+class BetHistory(Base):
+    """Bet Tracking & Performance Monitoring"""
+    __tablename__ = "bet_history"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    prediction_id = Column(Integer, ForeignKey("predictions.id"), nullable=False)
+    
+    # Bet Details
+    market = Column(String, nullable=False)  # "H", "D", "A", "Over2.5", "BTTS", etc.
+    market_name = Column(String)  # "Home Win", "Draw", "Away Win", etc.
+    
+    # Kelly Criterion Stakes
+    stake_kelly_percent = Column(Float, nullable=False)  # Kelly % recommended (0-25%)
+    stake_amount = Column(Float, nullable=False)  # Actual stake in currency units
+    bankroll_at_bet = Column(Float)  # Bankroll size when bet was placed
+    
+    # Odds Information
+    odds = Column(Float, nullable=False)  # Decimal odds
+    is_estimated_odds = Column(Boolean, default=True)  # True if estimated, False if live
+    
+    # Value Metrics
+    ai_probability = Column(Float)  # AI predicted probability for this market
+    expected_value = Column(Float)  # EV = probability × odds
+    edge_percentage = Column(Float)  # (EV - 1) × 100
+    value_level = Column(String)  # "HIGH", "MEDIUM", "NEUTRAL"
+    
+    # Bet Status & Results
+    status = Column(String, nullable=False, default='PENDING')  # PENDING, WON, LOST, VOID, PUSH
+    actual_result = Column(String)  # Actual match result after completion
+    is_winner = Column(Boolean)  # True if bet won
+    
+    # Financial Tracking
+    pnl = Column(Float, default=0.0)  # Profit & Loss: (stake × odds) - stake if won, -stake if lost
+    roi_percent = Column(Float)  # (pnl / stake) × 100
+    bankroll_after = Column(Float)  # Bankroll after settlement
+    
+    # Timestamps
+    placed_at = Column(DateTime, default=datetime.utcnow, index=True)
+    settled_at = Column(DateTime)  # When bet was settled (won/lost determined)
+    
+    # Metadata
+    notes = Column(String)  # Optional notes about the bet
+    confidence_level = Column(String)  # Model confidence: HIGH, MEDIUM, LOW
+    
+    # Relationship
+    prediction = relationship("Prediction", back_populates="bet_history")
+
 
 
 

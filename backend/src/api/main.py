@@ -945,10 +945,144 @@ async def startup_event():
 # Run the application
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info"
-    )
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+
+
+# ============================================================================
+# BET TRACKING ENDPOINTS
+# ============================================================================
+
+from src.models.database import BetHistory
+from src.services.performance_service import (
+    record_bet,
+    update_bet_results,
+    get_performance_stats,
+    get_equity_curve,
+    get_bet_history
+)
+
+
+class BetRecordRequest(BaseModel):
+    prediction_id: int
+    market: str
+    market_name: str
+    bankroll: float = 1000.0
+    kelly_percent: float
+    odds: float
+    ai_probability: float
+    expected_value: float
+    edge_percentage: float
+    value_level: str
+    is_estimated_odds: bool = True
+    notes: Optional[str] = None
+
+
+class BetHistoryResponse(BaseModel):
+    id: int
+    prediction_id: int
+    market: str
+    market_name: Optional[str]
+    stake_kelly_percent: float
+    stake_amount: float
+    bankroll_at_bet: Optional[float]
+    odds: float
+    is_estimated_odds: bool
+    ai_probability: Optional[float]
+    expected_value: Optional[float]
+    edge_percentage: Optional[float]
+    value_level: Optional[str]
+    status: str
+    actual_result: Optional[str]
+    is_winner: Optional[bool]
+    pnl: float
+    roi_percent: Optional[float]
+    placed_at: datetime
+    settled_at: Optional[datetime]
+    confidence_level: Optional[str]
+    
+    class Config:
+        from_attributes = True
+
+
+@app.post("/api/bets/record")
+async def create_bet_record(bet: BetRecordRequest, db: Session = Depends(get_db)):
+    """
+    Record a new bet with Kelly Criterion stakes
+    """
+    try:
+        bet_record = record_bet(
+            db=db,
+            prediction_id=bet.prediction_id,
+            market=bet.market,
+            market_name=bet.market_name,
+            bankroll=bet.bankroll,
+            kelly_percent=bet.kelly_percent,
+            odds=bet.odds,
+            ai_probability=bet.ai_probability,
+            expected_value=bet.expected_value,
+            edge_percentage=bet.edge_percentage,
+            value_level=bet.value_level,
+            is_estimated_odds=bet.is_estimated_odds,
+            notes=bet.notes
+        )
+        return {"message": "Bet recorded successfully", "bet_id": bet_record.id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/bets/history", response_model=List[BetHistoryResponse])
+async def get_bets_history(
+    value_level: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db)
+):
+    """
+    Get bet history with optional filters
+    """
+    try:
+        bets = get_bet_history(db, value_level=value_level, status=status, limit=limit)
+        return bets
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/bets/stats")
+async def get_betting_stats(db: Session = Depends(get_db)):
+    """
+    Get aggregate betting performance statistics
+    """
+    try:
+        stats = get_performance_stats(db)
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/bets/equity-curve")
+async def get_betting_equity_curve(initial_bankroll: float = 1000.0, db: Session = Depends(get_db)):
+    """
+    Get equity curve data for chart visualization
+    """
+    try:
+        curve = get_equity_curve(db, initial_bankroll=initial_bankroll)
+        return curve
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/bets/update-results")
+async def update_betting_results(db: Session = Depends(get_db)):
+    """
+    Worker endpoint to update bet results for finished matches
+    """
+    try:
+        result = update_bet_results(db)
+        return {
+            "message": "Bet results updated",
+            "updated": result['updated'],
+            "won": result['won'],
+            "lost": result['lost']
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
