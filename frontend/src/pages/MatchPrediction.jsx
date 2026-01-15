@@ -5,6 +5,8 @@ import { api, getEnhancedMatchPrediction } from '../services/api'
 import { format } from 'date-fns'
 import DoubleChanceGrid from '../components/AdvancedMarkets/DoubleChanceGrid'
 import ComboCards from '../components/AdvancedMarkets/ComboCards'
+import EloPowerMeter from '../components/EloPowerMeter'
+import ValueAnalysisCard from '../components/ValueAnalysisCard'
 
 function MatchPrediction() {
     const { matchId } = useParams()
@@ -154,6 +156,24 @@ function MatchPrediction() {
                             </div>
                         )}
                     </div>
+
+                    {/* ELO Advantage Power Meter - Only show if elo_diff is available */}
+                    {predictionData.features?.elo_diff !== undefined && predictionData.features?.elo_diff !== null && (
+                        <EloPowerMeter
+                            eloDiff={predictionData.features.elo_diff}
+                            homeTeamName={matchData?.home_team?.name}
+                            awayTeamName={matchData?.away_team?.name}
+                        />
+                    )}
+
+                    {/* Value Betting Analysis - Kelly Criterion */}
+                    {predictionData.has_value_analysis && (
+                        <ValueAnalysisCard
+                            prediction={predictionData}
+                            homeTeamName={matchData?.home_team?.name}
+                            awayTeamName={matchData?.away_team?.name}
+                        />
+                    )}
 
                     {/* Probabilities */}
                     <div className="card">

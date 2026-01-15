@@ -241,6 +241,24 @@ class Prediction(Base):
     combo_x_btts_actual = Column(Boolean)
     combo_x_btts_correct = Column(Boolean)
     
+    # ========== BETTING VALUE ANALYSIS (Kelly Criterion) ==========
+    # Kelly Criterion: Optimal stake percentage based on edge
+    kelly_percentage = Column(Float)  # Recommended stake % (0-25%, fractional Kelly)
+    kelly_raw = Column(Float)  # Raw uncapped Kelly value (can be negative)
+    
+    # Value Level Classification
+    value_level = Column(String)  # "HIGH", "MEDIUM", "NEUTRAL"
+    expected_value = Column(Float)  # EV = probability × odds
+    edge_percentage = Column(Float)  # (EV - 1) × 100
+    
+    # Bookmaker odds (estimated or actual)
+    # Format: {"1": 2.50, "X": 3.20, "2": 2.80, "over_25": 1.85, "btts": 1.90, ...}
+    estimated_odds = Column(JSON)
+    
+    # Flags
+    has_value_analysis = Column(Boolean, default=False)
+    is_estimated_odds = Column(Boolean, default=True)  # True if odds are estimated
+    
     # Relationship
     match = relationship("Match", back_populates="predictions")
 

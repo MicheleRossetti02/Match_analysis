@@ -101,10 +101,19 @@ function ComboCards({ prediction, match }) {
         return 'gray'; // Speculative
     };
 
-    const getValueLevel = (prob) => {
-        if (prob >= 0.35) return { text: 'High Value', color: 'amber', emoji: '💎' };
-        if (prob >= 0.25) return { text: 'Good Value', color: 'cyan', emoji: '⭐' };
-        return { text: 'Speculative', color: 'gray', emoji: '🎲' };
+    const getValueLevel = (prob, kellyPct = null) => {
+        // Priority 1: Use Kelly % if available (from betting analysis)
+        if (kellyPct !== null && kellyPct !== undefined) {
+            if (kellyPct >= 15) return { text: 'HIGH VALUE', color: 'green', emoji: '💎', tag: 'HIGH' };
+            if (kellyPct >= 8) return { text: 'MEDIUM VALUE', color: 'cyan', emoji: '⭐', tag: 'MEDIUM' };
+            if (kellyPct > 0) return { text: 'LOW VALUE', color: 'blue', emoji: '📊', tag: 'LOW' };
+            return { text: 'NO VALUE', color: 'gray', emoji: '⛔', tag: 'NONE' };
+        }
+
+        // Priority 2: Fallback to probability-based (old logic)
+        if (prob >= 0.35) return { text: 'HIGH VALUE', color: 'green', emoji: '💎', tag: 'HIGH' };
+        if (prob >= 0.25) return { text: 'GOOD VALUE', color: 'cyan', emoji: '⭐', tag: 'MEDIUM' };
+        return { text: 'SPECULATIVE', color: 'gray', emoji: '🎲', tag: 'LOW' };
     };
 
     if (topCombos.length === 0) {
@@ -139,7 +148,9 @@ function ComboCards({ prediction, match }) {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {topCombos.map((combo, idx) => {
                     const confidence = Math.round(combo.probability * 100);
-                    const valueLevel = getValueLevel(combo.probability);
+                    // Get Kelly % if available from prediction.estimated_odds
+                    const comboKelly = prediction.kelly_percentage || null;
+                    const valueLevel = getValueLevel(combo.probability, comboKelly);
                     const isInBolletta = hasBet(prediction.match_id);
                     const wasJustAdded = addedCombo === combo.key;
 
@@ -175,11 +186,15 @@ function ComboCards({ prediction, match }) {
                             {/* Value Badge */}
                             <div className="absolute top-3 right-3">
                                 <span className={`
-                                    inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold
-                                    bg-${valueLevel.color}-500/20 text-${valueLevel.color}-300 border border-${valueLevel.color}-500/30
+                                    inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold uppercase
+                                    ${valueLevel.tag === 'HIGH' ? 'bg-green-500/30 text-green-300 border-2 border-green-500 shadow-lg shadow-green-500/30' :
+                                        valueLevel.tag === 'MEDIUM' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' :
+                                            valueLevel.tag === 'LOW' ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30' :
+                                                'bg-gray-500/15 text-gray-400 border border-gray-500/20'
+                                    }
                                 `}>
                                     <span>{valueLevel.emoji}</span>
-                                    <span>{valueLevel.text}</span>
+                                    <span>VALUE: {valueLevel.tag}</span>
                                 </span>
                             </div>
 
@@ -195,6 +210,16 @@ function ComboCards({ prediction, match }) {
                                 <p className="text-xs text-gray-400 text-center mb-4">
                                     {combo.description}
                                 </p>
+
+                                {/* Kelly Criterion Recommendation */}
+                                {comboKelly !== null && comboKelly > 0 && (
+                                    <div className="mb-3 p-2.5 bg-gradient-to-r from-green-500/15 to-emerald-500/15 rounded-lg border border-green-500/30">
+                                        <p className="text-xs text-green-400 font-bold flex items-center justify-center gap-1.5">
+                                            <span>📊</span>
+                                            <span>Scommessa suggerita (Kelly): {comboKelly.toFixed(1)}%</span>
+                                        </p>
+                                    </div>
+                                )}
 
                                 {/* Confidence Indicator */}
                                 <div className="relative mb-4">

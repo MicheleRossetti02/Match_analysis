@@ -123,6 +123,19 @@ class PredictionResponse(BaseModel):
     # Combo predictions (JSON)
     combo_predictions: Optional[dict] = None  # {"1_over_25": 0.45, "x_under_25": 0.32, "gg_over_25": 0.38}
     
+    # Features used in prediction (JSON) - includes elo_diff, form, strength, etc.
+    features: Optional[dict] = None
+    
+    # Betting Value Analysis (Kelly Criterion)
+    kelly_percentage: Optional[float] = None  # Recommended stake % (0-25%)
+    kelly_raw: Optional[float] = None  # Raw Kelly value
+    value_level: Optional[str] = None  # HIGH, MEDIUM, NEUTRAL
+    expected_value: Optional[float] = None  # EV = probability × odds
+    edge_percentage: Optional[float] = None  # (EV - 1) × 100
+    estimated_odds: Optional[dict] = None  # Bookmaker odds (estimated or actual)
+    has_value_analysis: Optional[bool] = False
+    is_estimated_odds: Optional[bool] = True
+    
     class Config:
         from_attributes = True
 
@@ -173,6 +186,19 @@ class PredictionWithMatchResponse(BaseModel):
     
     # Combo predictions (JSON)
     combo_predictions: Optional[dict] = None  # {"1_over_25": 0.45, "x_under_25": 0.32, "gg_over_25": 0.38}
+    
+    # Features used in prediction (JSON) - includes elo_diff, form, strength, etc.
+    features: Optional[dict] = None
+    
+    # Betting Value Analysis (Kelly Criterion)
+    kelly_percentage: Optional[float] = None  # Recommended stake % (0-25%)
+    kelly_raw: Optional[float] = None  # Raw Kelly value
+    value_level: Optional[str] = None  # HIGH, MEDIUM, NEUTRAL
+    expected_value: Optional[float] = None  # EV = probability × odds
+    edge_percentage: Optional[float] = None  # (EV - 1) × 100
+    estimated_odds: Optional[dict] = None  # Bookmaker odds (estimated or actual)
+    has_value_analysis: Optional[bool] = False
+    is_estimated_odds: Optional[bool] = True
     
     class Config:
         from_attributes = True
